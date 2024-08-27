@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -57,11 +58,13 @@ func (u *user) SignUp(ctx *gin.Context) {
 	}
 
 	// mock register user ...
+	var hashedPassword, err = bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	var timeNowUnixMilli = time.Now().UnixMilli()
-	var err = u.db.Model(&User{}).Create(&User{
-		Name:      req.Name,
-		Email:     req.Email,
-		Password:  req.Password,
+	err = u.db.Model(&User{}).Create(&User{
+		Name:  req.Name,
+		Email: req.Email,
+		//Password:  req.Password,
+		Password:  string(hashedPassword),
 		CreatedAt: timeNowUnixMilli,
 		UpdatedAt: timeNowUnixMilli,
 	}).Error
