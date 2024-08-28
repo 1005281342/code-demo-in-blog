@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"net/http"
 	"time"
 
@@ -22,9 +23,11 @@ func main() {
 	_ = db.AutoMigrate(&User{})
 
 	var u = &user{
-		db:               db,
-		sessionName:      "sid",
-		sessionUserIDKey: "UserID",
+		db:                  db,
+		sessionName:         "sid",
+		sessionUserIDKey:    "UserID",
+		sessionUpdatedAtKey: "UpdatedAt",
+		sessionMaxAge:       60,
 	}
 
 	//var store = cookie.NewStore([]byte("secret")) // 使用 cookie 存储 session 信息不太安全
@@ -36,7 +39,7 @@ func main() {
 	store, err = redis.NewStore(
 		16,
 		"tcp",
-		"127.0.0.1:6379",
+		"192.168.8.51:6379",
 		"",
 		[]byte("ENVnX0XMCYkmUTPKNLmVczmsSDsDOFfG"),
 		[]byte("1RXEP1cC8uyXIrOG9mR8gvcGT560sRsu"),
@@ -53,11 +56,40 @@ func main() {
 	// 需要登录才能访问的接口组
 	var loginAccessGroup = server.Group("/login-access")
 	loginAccessGroup.Use(func(ctx *gin.Context) {
-		var sess = sessions.Default(ctx)
+		var sess = sessions.Default(ctx) // 本身就会发起查询将该 session 数据全部加载出来
 		var userID = sess.Get(u.sessionUserIDKey)
 		if userID == nil {
 			ctx.AbortWithStatus(http.StatusUnauthorized)
 			return
+		}
+
+		var nowUnixMilli = time.Now().UnixMilli()
+
+		var refresh = func() {
+			sess.Set(u.sessionUserIDKey, userID)
+			sess.Set(u.sessionUpdatedAtKey, nowUnixMilli)
+			sess.Options(sessions.Options{MaxAge: u.sessionMaxAge})
+			_ = sess.Save()
+		}
+
+		var updatedAtValue = sess.Get(u.sessionUpdatedAtKey)
+		if updatedAtValue == nil {
+			log.Println("刚登录，还未刷新过")
+			// 刚登录，还未刷新过
+			refresh()
+			return
+		}
+
+		var updatedAt, ok = updatedAtValue.(int64)
+		if !ok {
+			ctx.AbortWithStatus(http.StatusInternalServerError)
+			return
+		}
+
+		if nowUnixMilli-updatedAt > int64(u.sessionMaxAge/6+1)*1000 {
+			log.Println("达到允许刷新时间")
+			// 达到允许刷新时间
+			refresh()
 		}
 	})
 	loginAccessGroup.GET("/hello", u.Hello)
@@ -66,9 +98,11 @@ func main() {
 }
 
 type user struct {
-	db               *gorm.DB
-	sessionName      string
-	sessionUserIDKey string
+	db                  *gorm.DB
+	sessionName         string
+	sessionUserIDKey    string
+	sessionUpdatedAtKey string
+	sessionMaxAge       int
 }
 
 func (u *user) SignUp(ctx *gin.Context) {
@@ -148,6 +182,9 @@ func (u *user) Login(ctx *gin.Context) {
 	// 登录成功设置 session 信息
 	var sess = sessions.Default(ctx)
 	sess.Set(u.sessionUserIDKey, userInfo.ID)
+	sess.Options(sessions.Options{
+		MaxAge: u.sessionMaxAge, // 设置过期时间为 60s，用于调试
+	})
 	_ = sess.Save()
 
 	ctx.String(http.StatusOK, "登录成功")
