@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/gin-contrib/sessions"
-	"github.com/gin-contrib/sessions/cookie"
+	"github.com/gin-contrib/sessions/redis"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/sqlite"
@@ -27,7 +27,21 @@ func main() {
 		sessionUserIDKey: "UserID",
 	}
 
-	var store = cookie.NewStore([]byte("secret"))
+	//var store = cookie.NewStore([]byte("secret")) // 使用 cookie 存储 session 信息不太安全
+	//var store = memstore.NewStore(
+	//	[]byte("ENVnX0XMCYkmUTPKNLmVczmsSDsDOFfG"),
+	//	[]byte("1RXEP1cC8uyXIrOG9mR8gvcGT560sRsu"),
+	//) // 存储在本地内存中
+	var store sessions.Store
+	store, err = redis.NewStore(
+		16,
+		"tcp",
+		"127.0.0.1:6379",
+		"",
+		[]byte("ENVnX0XMCYkmUTPKNLmVczmsSDsDOFfG"),
+		[]byte("1RXEP1cC8uyXIrOG9mR8gvcGT560sRsu"),
+	)
+
 	server.Use(sessions.Sessions(u.sessionName, store))
 
 	ug := server.Group("/users")
